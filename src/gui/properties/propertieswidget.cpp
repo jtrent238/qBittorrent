@@ -36,17 +36,16 @@
 #include <QSplitter>
 #include <QHeaderView>
 #include <QAction>
-#include <QMessageBox>
 #include <QMenu>
 #include <QFileDialog>
 #include <QBitArray>
 
-#include "core/bittorrent/session.h"
-#include "core/preferences.h"
-#include "core/utils/fs.h"
-#include "core/utils/misc.h"
-#include "core/utils/string.h"
-#include "core/unicodestrings.h"
+#include "base/bittorrent/session.h"
+#include "base/preferences.h"
+#include "base/utils/fs.h"
+#include "base/utils/misc.h"
+#include "base/utils/string.h"
+#include "base/unicodestrings.h"
 #include "proplistdelegate.h"
 #include "torrentcontentfiltermodel.h"
 #include "torrentcontentmodel.h"
@@ -54,6 +53,7 @@
 #include "speedwidget.h"
 #include "trackerlist.h"
 #include "mainwindow.h"
+#include "messageboxraised.h"
 #include "downloadedpiecesbar.h"
 #include "pieceavailabilitybar.h"
 #include "proptabbar.h"
@@ -79,8 +79,9 @@ PropertiesWidget::PropertiesWidget(QWidget *parent, MainWindow* main_window, Tra
   // Torrent content filtering
   m_contentFilterLine = new LineEdit(this);
   m_contentFilterLine->setPlaceholderText(tr("Filter files..."));
+  m_contentFilterLine->setMaximumSize(300, m_contentFilterLine->size().height());
   connect(m_contentFilterLine, SIGNAL(textChanged(QString)), this, SLOT(filterText(QString)));
-  contentFilterLayout->insertWidget(4, m_contentFilterLine);
+  contentFilterLayout->insertWidget(3, m_contentFilterLine);
 
   // SIGNAL/SLOTS
   connect(filesList, SIGNAL(clicked(const QModelIndex&)), filesList, SLOT(edit(const QModelIndex&)));
@@ -99,7 +100,7 @@ PropertiesWidget::PropertiesWidget(QWidget *parent, MainWindow* main_window, Tra
   connect(filesList->header(), SIGNAL(sectionResized(int, int, int)), this, SLOT(saveSettings()));
   connect(filesList->header(), SIGNAL(sortIndicatorChanged(int, Qt::SortOrder)), this, SLOT(saveSettings()));
 
-#if QT_VERSION >= QT_VERSION_CHECK(5, 0, 0)
+#ifdef QBT_USES_QT5
   // set bar height relative to screen dpi
   int barHeight = devicePixelRatio() * 18;
 #else
@@ -126,7 +127,9 @@ PropertiesWidget::PropertiesWidget(QWidget *parent, MainWindow* main_window, Tra
   // Tracker list
   trackerList = new TrackerList(this);
   trackerUpButton->setIcon(GuiIconProvider::instance()->getIcon("go-up"));
+  trackerUpButton->setIconSize(Utils::Misc::smallIconSize());
   trackerDownButton->setIcon(GuiIconProvider::instance()->getIcon("go-down"));
+  trackerDownButton->setIconSize(Utils::Misc::smallIconSize());
   connect(trackerUpButton, SIGNAL(clicked()), trackerList, SLOT(moveSelectionUp()));
   connect(trackerDownButton, SIGNAL(clicked()), trackerList, SLOT(moveSelectionDown()));
   horizontalLayout_trackers->insertWidget(0, trackerList);
@@ -370,7 +373,7 @@ void PropertiesWidget::reloadPreferences() {
 
 void PropertiesWidget::loadDynamicData() {
     // Refresh only if the torrent handle is valid and if visible
-    if (!m_torrent || (main_window->getCurrentTabWidget() != transferList) || (state != VISIBLE)) return;
+    if (!m_torrent || (main_window->currentTabWidget() != transferList) || (state != VISIBLE)) return;
 
     // Transfer infos
     switch(stackedProperties->currentIndex()) {
@@ -397,8 +400,8 @@ void PropertiesWidget::loadDynamicData() {
         lbl_elapsed->setText(elapsed_txt);
 
         lbl_connections->setText(tr("%1 (%2 max)", "%1 and %2 are numbers, e.g. 3 (10 max)")
-                                .arg(m_torrent->connectionsCount() < 0 ? QString::fromUtf8(C_INFINITY) : QString::number(m_torrent->connectionsCount()))
-                                .arg(QString::number(m_torrent->connectionsLimit())));
+                                .arg(m_torrent->connectionsCount())
+                                .arg(m_torrent->connectionsLimit() < 0 ? QString::fromUtf8(C_INFINITY) : QString::number(m_torrent->connectionsLimit())));
 
         label_eta_val->setText(Utils::Misc::userFriendlyDuration(m_torrent->eta()));
 
@@ -419,11 +422,11 @@ void PropertiesWidget::loadDynamicData() {
 
         label_dl_speed_val->setText(tr("%1 (%2 avg.)", "%1 and %2 are speed rates, e.g. 200KiB/s (100KiB/s avg.)")
                                         .arg(Utils::Misc::friendlyUnit(m_torrent->downloadPayloadRate(), true))
-                                        .arg(Utils::Misc::friendlyUnit(m_torrent->totalDownload() / (1 + m_torrent->activeTime() - m_torrent->finishedTime())), true));
+                                        .arg(Utils::Misc::friendlyUnit(m_torrent->totalDownload() / (1 + m_torrent->activeTime() - m_torrent->finishedTime()), true)));
 
         label_upload_speed_val->setText(tr("%1 (%2 avg.)", "%1 and %2 are speed rates, e.g. 200KiB/s (100KiB/s avg.)")
                                         .arg(Utils::Misc::friendlyUnit(m_torrent->uploadPayloadRate(), true))
-                                        .arg(Utils::Misc::friendlyUnit(m_torrent->totalUpload() / (1 + m_torrent->activeTime())), true));
+                                        .arg(Utils::Misc::friendlyUnit(m_torrent->totalUpload() / (1 + m_torrent->activeTime()), true)));
 
         label_last_complete_val->setText(m_torrent->lastSeenComplete().isValid() ? m_torrent->lastSeenComplete().toString(Qt::DefaultLocaleShortDate) : tr("Never"));
 
@@ -450,22 +453,22 @@ void PropertiesWidget::loadDynamicData() {
             downloaded_pieces->setProgress(m_torrent->pieces(), m_torrent->downloadingPieces());
         }
         else {
-        	showPiecesAvailability(false);
+            showPiecesAvailability(false);
         }
 
-        return;
+        break;
     }
 
     case PropTabBar::TRACKERS_TAB: {
         // Trackers
         trackerList->loadTrackers();
-        return;
+        break;
     }
 
     case PropTabBar::PEERS_TAB: {
         // Load peers
         peersList->loadPeers(m_torrent);
-        return;
+        break;
     }
 
     case PropTabBar::FILES_TAB: {
@@ -480,10 +483,10 @@ void PropertiesWidget::loadDynamicData() {
             // PropListModel->model()->updateFilesPriorities(h.file_priorities());
             filesList->setUpdatesEnabled(true);
         }
+        break;
     }
 
-    default:
-          return;
+    default:;
     }
 }
 
@@ -654,7 +657,7 @@ void PropertiesWidget::renameSelectedFile() {
                                                 index.data().toString(), &ok).trimmed();
   if (ok && !new_name_last.isEmpty()) {
     if (!Utils::Fs::isValidFileSystemName(new_name_last)) {
-      QMessageBox::warning(this, tr("The file could not be renamed"),
+      MessageBoxRaised::warning(this, tr("The file could not be renamed"),
                            tr("This file name contains forbidden characters, please choose a different one."),
                            QMessageBox::Ok);
       return;
@@ -671,25 +674,22 @@ void PropertiesWidget::renameSelectedFile() {
       path_items.removeLast();
       path_items << new_name_last;
       QString new_name = path_items.join("/");
-      if (old_name == new_name) {
-        qDebug("Name did not change");
-        return;
+      if (Utils::Fs::sameFileNames(old_name, new_name)) {
+          qDebug("Name did not change");
+          return;
       }
       new_name = Utils::Fs::expandPath(new_name);
+      qDebug("New name: %s", qPrintable(new_name));
       // Check if that name is already used
       for (int i = 0; i < m_torrent->filesCount(); ++i) {
-        if (i == file_index) continue;
-#if defined(Q_OS_UNIX) || defined(Q_WS_QWS)
-        if (m_torrent->filePath(i).compare(new_name, Qt::CaseSensitive) == 0) {
-#else
-        if (m_torrent->filePath(i).compare(new_name, Qt::CaseInsensitive) == 0) {
-#endif
-          // Display error message
-          QMessageBox::warning(this, tr("The file could not be renamed"),
-                               tr("This name is already in use in this folder. Please use a different name."),
-                               QMessageBox::Ok);
-          return;
-        }
+          if (i == file_index) continue;
+          if (Utils::Fs::sameFileNames(m_torrent->filePath(i), new_name)) {
+              // Display error message
+              MessageBoxRaised::warning(this, tr("The file could not be renamed"),
+                                        tr("This name is already in use in this folder. Please use a different name."),
+                                        QMessageBox::Ok);
+              return;
+          }
       }
       const bool force_recheck = QFile::exists(m_torrent->savePath(true) + "/" + new_name);
       qDebug("Renaming %s to %s", qPrintable(old_name), qPrintable(new_name));
@@ -700,7 +700,8 @@ void PropertiesWidget::renameSelectedFile() {
       if (new_name_last.endsWith(".!qB"))
         new_name_last.chop(4);
       PropListModel->setData(index, new_name_last);
-    } else {
+    }
+    else {
       // Folder renaming
       QStringList path_items;
       path_items << index.data().toString();
@@ -713,11 +714,14 @@ void PropertiesWidget::renameSelectedFile() {
       path_items.removeLast();
       path_items << new_name_last;
       QString new_path = path_items.join("/");
+      if (Utils::Fs::sameFileNames(old_path, new_path)) {
+          qDebug("Name did not change");
+          return;
+      }
       if (!new_path.endsWith("/")) new_path += "/";
       // Check for overwriting
-      const int num_files = m_torrent->filesCount();
-      for (int i=0; i<num_files; ++i) {
-        const QString current_name = m_torrent->filePath(i);
+      for (int i = 0; i < m_torrent->filesCount(); ++i) {
+        const QString &current_name = m_torrent->filePath(i);
 #if defined(Q_OS_UNIX) || defined(Q_WS_QWS)
         if (current_name.startsWith(new_path, Qt::CaseSensitive)) {
 #else
@@ -731,7 +735,7 @@ void PropertiesWidget::renameSelectedFile() {
       }
       bool force_recheck = false;
       // Replace path in all files
-      for (int i=0; i<num_files; ++i) {
+      for (int i = 0; i < m_torrent->filesCount(); ++i) {
         const QString current_name = m_torrent->filePath(i);
         if (current_name.startsWith(old_path)) {
           QString new_name = current_name;
@@ -840,14 +844,9 @@ void PropertiesWidget::editWebSeed() {
 bool PropertiesWidget::applyPriorities() {
   qDebug("Saving files priorities");
   const QVector<int> priorities = PropListModel->model()->getFilePriorities();
-  // Save first/last piece first option state
-  bool first_last_piece_first = m_torrent->hasFirstLastPiecePriority();
   // Prioritize the files
   qDebug("prioritize files: %d", priorities[0]);
   m_torrent->prioritizeFiles(priorities);
-  // Restore first/last piece first option if necessary
-  if (first_last_piece_first)
-    m_torrent->setFirstLastPiecePriority(true);
   return true;
 }
 
@@ -857,7 +856,7 @@ void PropertiesWidget::filteredFilesChanged() {
 }
 
 void PropertiesWidget::filterText(const QString& filter) {
-  PropListModel->setFilterFixedString(filter);
+  PropListModel->setFilterRegExp(QRegExp(filter, Qt::CaseInsensitive, QRegExp::WildcardUnix));
   if (filter.isEmpty()) {
     filesList->collapseAll();
     filesList->expand(PropListModel->index(0, 0));
